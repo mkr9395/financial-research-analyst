@@ -5,7 +5,7 @@ A 2-day proof-of-concept that demonstrates practical use of LangChain Deep Agent
 
 ## 2. POC scope
 In scope:
-- One manager Deep Agent plus specialist subagents (financials, AI business, competition, risks).
+- One manager Deep Agent plus three specialist subagents: Financial Researcher, Industry Researcher, Risk Analyst.
 - Tavily web search, file-based research artifacts, persistent memory file, human approval of a draft assessment, a validated structured final report rendered to Markdown.
 - Offline unit tests plus a few live tests.
 
