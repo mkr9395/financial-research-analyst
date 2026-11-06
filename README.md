@@ -2,7 +2,7 @@
 
 Proof-of-concept financial research agent built with LangChain Deep Agents, OpenAI and Tavily. Given a request like "Analyze NVIDIA as an investment opportunity", it researches financials, AI business, competition and risks, then writes a structured analyst report.
 
-**Status:** Session 1 — project foundation only; the agent is not implemented yet.
+**Status:** Session 2 — minimal Deep Agent runs (`python main.py "your request"`); search, subagents, memory and approval come later.
 
 ## Setup
 ```powershell
