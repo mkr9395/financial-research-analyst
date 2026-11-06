@@ -39,6 +39,15 @@ def test_prompt_contains_date_and_planning_instruction():
 
 
 @pytest.mark.unit
+def test_manager_prompt_rules():
+    prompt = manager_prompt(date(2026, 11, 6))
+    for phrase in ("write_todos", "financial-researcher", "industry-researcher", "risk-analyst",
+                   "not all three", "self-contained", "at most once", "at most one follow-up",
+                   "do not do specialist research", "Stop as soon as"):
+        assert phrase.lower() in prompt.lower(), phrase
+
+
+@pytest.mark.unit
 def test_backend_is_confined_to_workspace(settings):
     backend = build_backend(settings)
     assert backend.cwd == settings.workspace_dir.resolve()

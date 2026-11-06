@@ -160,3 +160,9 @@
 - Per-subagent skills are supported (`SubAgent.skills`), but the source is a directory, so each specialist can load all three skills; the prompt names its one. Not isolable without restructuring `workspace/skills/`.
 - Tests: offline 33 passed, 5 deselected; see the live run below.
 - Live: 4 passed (3 standalone specialists each search and cite a URL, plus the manager delegation test). Offline total 33 passed.
+
+### Session 5 addendum - manager prompt rewrite
+- `app/prompts.py`: manager prompt now follows seven explicit steps: understand the request; plan with `write_todos` (one todo per specialist used plus a review todo) before delegating; choose only the needed specialists; delegate with specific self-contained `task` descriptions (in parallel when independent); never do specialist research itself; at most one delegation per area, at most one follow-up for a clearly missing item; review, then stop when the request is covered. Removed the "/research/ files" line since artifacts are Session 6.
+- `app/agent.py` already passed `subagents=build_subagents(...)`; unchanged. Loop control is prompt + recursion limit only; no middleware.
+- Tests: `test_manager_prompt_rules` (unit); live: full request delegates to all three exactly once; an industry-only question delegates only to `industry-researcher` once.
+- Results: offline 34 passed, 9 deselected; the two live manager-delegation tests passed (2 passed). The other live tests were not re-run after this change.

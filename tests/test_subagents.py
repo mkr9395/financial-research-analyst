@@ -127,3 +127,15 @@ def test_live_standalone_specialist_searches_and_cites(name):
     searched = [tc for m in result["messages"] if m.type == "ai" for tc in m.tool_calls if tc["name"] == "web_search"]
     assert searched, "specialist never searched"
     assert "http" in result["messages"][-1].text, "no source URL in the reply"
+
+
+@pytest.mark.e2e
+@pytest.mark.live("OPENAI_API_KEY", "MODEL", "TAVILY_API_KEY")
+def test_live_industry_only_question_uses_only_industry_researcher():
+    result = agent_module.build_agent(load_settings()).invoke({"messages": [{"role": "user", "content": (
+        "Who are NVIDIA's main competitors in AI accelerators and what are the key industry trends? "
+        "Keep it brief."
+    )}]})
+    calls = [tc for m in result["messages"] if m.type == "ai" for tc in m.tool_calls if tc["name"] == "task"]
+    assert {c["args"]["subagent_type"] for c in calls} == {"industry-researcher"}
+    assert len(calls) == 1
