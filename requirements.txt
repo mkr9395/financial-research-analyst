@@ -1,0 +1,10 @@
+# Unpinned for now; versions get pinned in Session 2.
+deepagents
+langchain
+langchain-openai
+langgraph
+langsmith
+langchain-tavily
+pydantic
+python-dotenv
+pytest

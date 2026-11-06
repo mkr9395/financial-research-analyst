@@ -70,3 +70,9 @@ Thumbs.db
 *.temp
 *.swp
 *.swo
+# =========================
+# Agent outputs
+# =========================
+
+workspace/research/
+workspace/reports/
