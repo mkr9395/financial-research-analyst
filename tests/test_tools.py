@@ -113,28 +113,6 @@ def test_unexpected_errors_are_not_swallowed(tmp_path):
 
 
 @pytest.mark.integration
-def test_agent_calls_web_search_through_tool_node(tmp_path, monkeypatch):
-    from langchain_core.messages import AIMessage
-
-    from app import agent as agent_module
-    from app import tools as tools_module
-    from tests.test_agent import FakeToolModel
-
-    stub = StubClient(response={"results": [{"title": "T", "url": "https://e.com", "content": "c"}]})
-    monkeypatch.setattr(tools_module, "TavilyClient", lambda **kw: stub)
-    call = AIMessage(content="", tool_calls=[{"name": "web_search", "args": {"query": "nvda"}, "id": "1"}])
-    fake = FakeToolModel(messages=iter([call, AIMessage(content="done")]))
-    real = agent_module.create_deep_agent
-    monkeypatch.setattr(agent_module, "create_deep_agent", lambda **kw: real(**{**kw, "model": fake}))
-    result = agent_module.build_agent(_settings(tmp_path, "tvly-test")).invoke(
-        {"messages": [{"role": "user", "content": "go"}]}
-    )
-    tool_msgs = [m for m in result["messages"] if m.type == "tool"]
-    assert "https://e.com" in tool_msgs[0].content
-    assert stub.calls[0]["query"] == "nvda"
-
-
-@pytest.mark.integration
 @pytest.mark.live("TAVILY_API_KEY", "OPENAI_API_KEY", "MODEL")
 def test_live_search_returns_sourced_results():
     out = build_web_search_tool(load_settings()).invoke(
@@ -145,7 +123,7 @@ def test_live_search_returns_sourced_results():
 
 @pytest.mark.e2e
 @pytest.mark.live("TAVILY_API_KEY", "OPENAI_API_KEY", "MODEL")
-def test_live_agent_searches_and_cites_a_url():
+def test_live_agent_delegates_search_and_cites_a_url():
     from app.agent import build_agent
 
     result = build_agent(load_settings()).invoke(
@@ -153,8 +131,6 @@ def test_live_agent_searches_and_cites_a_url():
             "What was NVIDIA's most recent quarterly revenue? Cite the source."}]}
     )
     messages = result["messages"]
-    searches = [c for m in messages if m.type == "ai" for c in m.tool_calls if c["name"] == "web_search"]
-    assert searches, "agent never called web_search"
-    tool_output = " ".join(m.content for m in messages if m.type == "tool" and m.name == "web_search")
-    assert "URL: http" in tool_output, f"search did not return results: {tool_output[:200]}"
+    delegations = [c for m in messages if m.type == "ai" for c in m.tool_calls if c["name"] == "task"]
+    assert delegations, "manager never delegated to a specialist"
     assert "http" in messages[-1].text, "final answer cites no URL"

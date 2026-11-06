@@ -7,7 +7,8 @@ from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
 from app import agent as agent_module
-from app.agent import build_agent, build_backend
+from app.agent import build_agent
+from app.backend import build_backend
 from app.config import PROJECT_ROOT, Settings, load_settings
 from app.prompts import manager_prompt
 
@@ -63,7 +64,11 @@ def test_build_agent_wiring(settings, monkeypatch):
     assert captured["backend"].cwd == settings.workspace_dir.resolve()
     assert "write_todos" in captured["system_prompt"]
     assert agent.config["recursion_limit"] == 7
-    assert [t.name for t in captured["tools"]] == ["web_search"]
+    assert not captured["tools"]  # the manager does not search; specialists do
+    assert [s["name"] for s in captured["subagents"]] == [
+        "financial-researcher", "industry-researcher", "risk-analyst"
+    ]
+    assert "task tool" in captured["system_prompt"]
 
 
 @pytest.mark.integration

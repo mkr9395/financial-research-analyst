@@ -1,6 +1,6 @@
 # Architecture
 
-Status: target design. Implemented so far (Sessions 2-4): config, prompt, `build_agent()` with FilesystemBackend, built-in todos, the `web_search` tool (`app/tools.py`), runtime skills, `main.py` runner. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
+Status: target design. Implemented so far (Sessions 2-5): config, prompt, `build_agent()` with FilesystemBackend, built-in todos, the `web_search` tool (`app/tools.py`), runtime skills, three specialist subagents (`app/subagents.py`) with manager delegation via `task`, `main.py` runner. Specialists currently return their findings in the reply; writing `/research/<area>.md` comes in Session 6. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
 
 ## 1. Goal
 Take a complex research request, for example "Analyze NVIDIA as an investment opportunity. Research recent financial performance, AI business, competitive landscape, major risks, and produce a structured analyst report.", and produce a validated, structured analyst report rendered as Markdown. Provider: OpenAI. Search: Tavily. Tracing: LangSmith.
@@ -43,7 +43,7 @@ Orchestration uses only built-in Deep Agents capabilities: planning (`write_todo
 - Model comes from the `MODEL` environment variable (`provider:model`). Today's date is injected into its system prompt.
 
 ### 3.2 Specialist subagents
-Defined once in `app/subagents.py`, passed via `subagents=`, invoked through the built-in `task` tool. Each runs in isolated context and gets a narrow prompt, minimal tools, and today's date.
+Defined once as data in `app/subagents.py` (`SPECIALISTS`; `build_standalone_subagent` builds one alone for testing), passed via `subagents=`, invoked through the built-in `task` tool. Each runs in isolated context and gets a narrow prompt, minimal tools, and today's date.
 
 | Subagent | Focus | Output file |
 |---|---|---|
@@ -58,7 +58,7 @@ Contract for every specialist:
 - Distinguish facts from interpretation and state the date of each figure.
 
 ### 3.3 Web search tool
-- Implemented in `app/tools.py` (`build_web_search_tool(settings)`): a `web_search(query, topic, time_range)` tool wrapping the standalone Tavily SDK (`tavily-python` 0.8.5, `TavilyClient.search`), independent of orchestration. `TAVILY_API_KEY` is required by `load_settings()` (fails fast at startup). Results are normalised into `SearchResult` (title, url, snippet, published date if present), limited by `SEARCH_MAX_RESULTS` (default 5) and `SEARCH_SNIPPET_CHARS` (default 1000). Empty results return `No results found for '<query>'.`; Known Tavily failures (invalid key, forbidden, bad request, usage limit, timeout, `requests` network errors) return `Search error (<Type>): <message>` to the model; the SDK raises typed exceptions, so only those are caught and unexpected errors propagate. Requests use a 30 s timeout. Attached to the manager for now; Session 4 moves it to the specialists.
+- Implemented in `app/tools.py` (`build_web_search_tool(settings)`): a `web_search(query, topic, time_range)` tool wrapping the standalone Tavily SDK (`tavily-python` 0.8.5, `TavilyClient.search`), independent of orchestration. `TAVILY_API_KEY` is required by `load_settings()` (fails fast at startup). Results are normalised into `SearchResult` (title, url, snippet, published date if present), limited by `SEARCH_MAX_RESULTS` (default 5) and `SEARCH_SNIPPET_CHARS` (default 1000). Empty results return `No results found for '<query>'.`; Known Tavily failures (invalid key, forbidden, bad request, usage limit, timeout, `requests` network errors) return `Search error (<Type>): <message>` to the model; the SDK raises typed exceptions, so only those are caught and unexpected errors propagate. Requests use a 30 s timeout. Attached to the specialists only (explicit `tools=[web_search]` on each `SubAgent`; omitting `tools` would inherit the manager's).
 - Typed inputs, a model-facing docstring, bounded result count, and clear errors on failure (no silent fallbacks).
 - Search results are untrusted data, never instructions.
 - All specialists use it; the manager does not need it.
@@ -66,7 +66,7 @@ Contract for every specialist:
 ### 3.4 Runtime skills
 - Located in `workspace/skills/` (agent path `/skills/`), committed to git.
 - Loaded with `skills=["/skills/"]`: a source directory containing one directory per skill, each with a `SKILL.md` (`name` equal to the directory name, `description`).
-- Skills hold reusable procedures (financial analysis, investment research, risk analysis), including citing and dating sources. Implemented (Session 4): `skills=["/skills/"]` on the manager with three skills: `financial-analysis`, `investment-research`, `risk-analysis`. Only name and description are in the prompt; the manager reads a SKILL.md when relevant. Custom subagents do not inherit the manager's skills, so in Session 5 each specialist is given the one relevant skill via its own `SubAgent` `skills` field (supported in 0.7.34; forked subagents cannot set skills).
+- Skills hold reusable procedures (financial analysis, investment research, risk analysis), including citing and dating sources. Implemented (Session 4): `skills=["/skills/"]` on the manager with three skills: `financial-analysis`, `investment-research`, `risk-analysis`. Only name and description are in the prompt; the manager reads a SKILL.md when relevant. Custom subagents do not inherit the manager's skills, so each specialist gets `skills=["/skills/"]` via its own `SubAgent` `skills` field (supported in 0.7.34). The source is a directory, so all three skills are loadable; each specialist prompt names the one it must read first.
 - Separate from Claude Code development skills in `.claude/skills/`; the two are never mixed.
 
 ### 3.5 Workspace filesystem
@@ -127,3 +127,10 @@ The framework may also write internal files (for example offloaded large tool re
 
 ## 8. Out of scope
 RAG, vector databases, MCP, Docker, Kubernetes, a web frontend, cloud deployment, custom LangGraph orchestration, custom loop-control middleware, real-time market data, trading, and personalized investment advice.
+
+## Verified deepagents API for subagents (Session 5, deepagents 0.7.34)
+Verified from the installed source (`deepagents/middleware/subagents.py`, `deepagents/graph.py`):
+1. `subagents=` takes `SubAgent` dicts. Required: `name`, `description`. Optional: `system_prompt`, `tools`, `model`, `middleware`, `interrupt_on`, `skills`, `permissions`, `response_format`, `mode` (`isolated` default; `fork` experimental). Names must be unique.
+2. A subagent can have its own `tools` (omitted = inherits the manager's), `model` (omitted = the manager's) and `skills` (not allowed in `fork` mode).
+3. Default built-ins for a declarative subagent: filesystem tools (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`), summarization, tool-call patching. It does NOT get `write_todos` (todos are added to the manager only) and has no `task` tool. A `general-purpose` subagent is auto-added unless one with that name is supplied.
+4. `task(description, subagent_type)`: an isolated subagent receives manager state with `messages` replaced by one `HumanMessage(description)`, so it sees only the description. The manager gets back one `ToolMessage` with the text of the subagent's last non-empty AI message (or the JSON `structured_response` if `response_format` is set); other state changes such as files are merged back.

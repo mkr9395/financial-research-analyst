@@ -125,3 +125,38 @@
 
 **Checkpoint status**
 - PASSED: skills load from `/skills/`, only names/descriptions are in the prompt, and the live agent read the matching SKILL.md.
+
+## Session 5 - Specialist subagents and delegation
+
+**Built**
+- `app/subagents.py`: `build_subagents(search_tool, today)` returns three `SubAgent` specs (`financial-researcher`, `industry-researcher`, `risk-analyst`), defined once. Each has a narrow dated prompt, `tools=[web_search]` only, `skills=["/skills/"]`, a prompt line naming the one skill to read, and a reply cap (~300 words, with source URLs, no files).
+- `app/agent.py`: manager now has `tools=[]` and `subagents=build_subagents(...)`; delegation uses the built-in `task` tool. `SKILLS_SOURCE` moved to `app/subagents.py` (still importable from `app.agent`).
+- `app/prompts.py`: manager delegates to exactly those three specialists, once per area, in parallel, checks todos before delegating, at most one follow-up per gap, never uses general-purpose, and does not search itself.
+- Tests: `tests/test_subagents.py` (1 unit, 1 integration with stubbed model/Tavily proving manager -> `task` -> specialist -> `web_search`, 1 live e2e: all three specialists, each delegated exactly once). Wiring test in `test_agent.py` updated; the old live search test now checks delegation plus a cited URL.
+
+**Key decisions and why**
+- Verified installed API: `deepagents.SubAgent` TypedDict; omitting `tools` inherits the manager's, so tools are explicit. Filesystem and todo tools come from the framework's base stack.
+- Search moved from manager to specialists (manager synthesises, specialists research).
+- Loop/duplicate control is prompt + todos + recursion limit only; no middleware. The framework still auto-adds a `general-purpose` subagent; the prompt forbids using it.
+- Each specialist can load all three skills (skills source is a directory); the prompt names one. Accepted for the POC.
+- Out of scope and not built: `/research/` artifact files, memory, approval, final report.
+
+**Verification (requested after the first implementation)**
+- The four API facts (subagent fields, own tools/model/skills, default built-ins, `task` hand-off) were verified afterwards from the installed source; they are recorded in `docs/architecture.md`. They confirmed the implementation: only valid fields are used, `tools` is set explicitly, and subagents get no `write_todos` and see only the task description (so the manager prompt requires self-contained descriptions). The check should have preceded the code.
+
+**Problems and fixes**
+- The earlier manager-calls-`web_search` integration and live tests became invalid by design; the integration test was replaced by a delegation test, the live test now asserts `task` delegation.
+
+**Test results**
+- Offline: 28 passed, 0 failed, 5 deselected (before the live-test rewrite). Full run before the rewrite: 32 passed, 1 failed (the obsolete live test). Final (after the rewrite): offline 28 passed, 0 failed, 5 deselected; full run including live 33 passed, 0 failed, 0 skipped.
+
+**Checkpoint status**
+- PASSED: the manager delegates to the three specialists with `task` (live test: three distinct delegations, one per area), specialists search via `web_search`, and answers cite URLs.
+
+### Session 5 addendum - specialists as data, standalone helper
+- `app/subagents.py` now holds the three specialists as one `SPECIALISTS` data tuple (name, title, skill, focus, description) plus one `PROMPT_TEMPLATE`. Prompts state: stay in your area ("ONLY: ..."), read the matching skill, cite URL + date, mark FACT vs ANALYSIS, state uncertainty, date injected.
+- `build_standalone_subagent(name, settings, search_tool)` builds a single specialist as its own agent from the same spec (no duplicate definitions) for testing each alone.
+- `build_backend` moved to `app/backend.py` (avoids a circular import); `app.agent` imports it.
+- Per-subagent skills are supported (`SubAgent.skills`), but the source is a directory, so each specialist can load all three skills; the prompt names its one. Not isolable without restructuring `workspace/skills/`.
+- Tests: offline 33 passed, 5 deselected; see the live run below.
+- Live: 4 passed (3 standalone specialists each search and cite a URL, plus the manager delegation test). Offline total 33 passed.
