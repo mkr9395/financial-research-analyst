@@ -166,3 +166,26 @@
 - `app/agent.py` already passed `subagents=build_subagents(...)`; unchanged. Loop control is prompt + recursion limit only; no middleware.
 - Tests: `test_manager_prompt_rules` (unit); live: full request delegates to all three exactly once; an industry-only question delegates only to `industry-researcher` once.
 - Results: offline 34 passed, 9 deselected; the two live manager-delegation tests passed (2 passed). The other live tests were not re-run after this change.
+
+### Session 5 addendum - test suite and observed execution path
+**Built**
+- `tests/test_subagents.py`: unit (unique names, required fields, one `web_search` tool, matching skill path in the prompt, date, scope/evidence rules, unknown standalone name); integration (standalone uses the same definition); live per specialist via `build_standalone_subagent` (runs, calls `web_search`, cites a URL, reply contains in-area keywords, makes no plan/delegation calls).
+- `tests/test_delegation.py`: `execution_path()` helper; live full NVIDIA request (plan present, all three specialists, no duplicate task calls, non-empty results, URL in the final answer); live cloud-GPU request (only `industry-researcher`, once); offline stubbed manager -> task -> specialist -> web_search test.
+
+**Problems and fixes**
+- Regression I introduced: after the manager prompt rewrite, `test_live_multi_step_plan_written_to_workspace` failed (manager skipped `write_todos` for a simple multi-step request). Fixed by restoring "for any request with more than one step, first write a plan with write_todos" in step 2 of `app/prompts.py`; the test passes again.
+- An early heredoc-based file write failed silently (quoting); files were re-created with the Write tool.
+- One intermittent failure NOT explained: in one full run `test_live_full_analysis_plans_and_delegates_to_all_three_once` failed; I did not capture its assertion output. Re-run alone 4 times and it passed each time (plus 2 earlier passes). Cause unknown; likely LLM nondeterminism (e.g. a missing URL in the final answer or a repeated delegation), unconfirmed.
+
+**Observed execution path** (from run messages; LangSmith tracing is off)
+- Full request: `write_todos` (plan) -> (reads skill files with `ls`/`read_file`, order varies) -> three parallel `task` calls (financial-researcher, industry-researcher, risk-analyst), one each -> three results (about 2.7k-4.6k chars each) -> `write_todos` status updates -> final synthesis with sources.
+- Cloud-GPU question: `write_todos` -> one `task[industry-researcher]` -> one result -> `write_todos` updates -> final answer. No other specialist used.
+- Specialists alone: financial 8 searches, industry 11, risk 6; each cited URLs and marked FACT/ANALYSIS.
+- Caveat: "stays in its area" is checked only by keyword heuristic plus absence of plan/task calls, not semantically.
+
+**Test results**
+- Offline: 35 passed, 0 failed, 9 deselected.
+- Full run including live (last): 43 passed, 1 failed (the intermittent test above); the previous full run before the prompt fix failed on the plan-writing test, now fixed.
+
+**Checkpoint status (Session 5)**
+- Passed with a caveat: delegation matches (plan, task calls to the right specialists, results returned, no duplicates) in 7 of 8 live runs of the delegation e2e; one unexplained intermittent failure remains and a clean full-suite run (0 failures) has not been shown.

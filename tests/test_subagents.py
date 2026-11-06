@@ -1,11 +1,10 @@
-"""Tests for the specialist subagents and manager delegation via the task tool (model and Tavily stubbed)."""
+"""Tests for the specialist subagent definitions and each specialist run on its own."""
 from datetime import date
 
 import pytest
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
-from app import agent as agent_module
 from app import tools as tools_module
 from app.config import Settings, load_settings
 from app.subagents import build_standalone_subagent, build_subagents
@@ -13,6 +12,11 @@ from tests.test_agent import FakeToolModel
 from tests.test_tools import StubClient
 
 NAMES = ["financial-researcher", "industry-researcher", "risk-analyst"]
+SKILL_FOR = {
+    "financial-researcher": "financial-analysis",
+    "industry-researcher": "investment-research",
+    "risk-analyst": "risk-analysis",
+}
 
 
 @pytest.fixture
@@ -25,28 +29,38 @@ def settings(tmp_path) -> Settings:
     )
 
 
+@pytest.fixture
+def search_tool(settings):
+    return tools_module.build_web_search_tool(settings, client=StubClient(response={"results": []}))
+
+
 @pytest.mark.unit
-def test_specialists_are_narrow_and_dated(settings):
-    tool = tools_module.build_web_search_tool(settings, client=StubClient(response={"results": []}))
-    specs = build_subagents(tool, date(2026, 11, 6))
-    assert [s["name"] for s in specs] == NAMES
-    for s in specs:
+def test_names_are_unique_and_complete(search_tool):
+    names = [s["name"] for s in build_subagents(search_tool)]
+    assert names == NAMES and len(set(names)) == 3
+
+
+@pytest.mark.unit
+def test_definitions_have_required_fields_tool_and_skill(search_tool):
+    for s in build_subagents(search_tool, date(2026, 11, 6)):
+        assert s["description"].strip() and s["system_prompt"].strip()
         assert [t.name for t in s["tools"]] == ["web_search"]
+        assert s["skills"] == ["/skills/"]
+        assert f"/skills/{SKILL_FOR[s['name']]}/SKILL.md" in s["system_prompt"]
         assert "2026-11-06" in s["system_prompt"]
-        assert s["description"] and s["skills"] == ["/skills/"]
-    skills = {s["name"]: s["system_prompt"] for s in specs}
-    assert "/skills/financial-analysis/SKILL.md" in skills["financial-researcher"]
-    assert "/skills/investment-research/SKILL.md" in skills["industry-researcher"]
-    assert "/skills/risk-analysis/SKILL.md" in skills["risk-analyst"]
 
 
 @pytest.mark.unit
-def test_prompts_state_scope_and_evidence_rules(settings):
-    tool = tools_module.build_web_search_tool(settings, client=StubClient(response={"results": []}))
-    for s in build_subagents(tool):
-        p = s["system_prompt"]
+def test_prompts_state_scope_and_evidence_rules(search_tool):
+    for s in build_subagents(search_tool):
         for phrase in ("Stay within your area", "source URL", "FACT", "ANALYSIS", "uncertainty"):
-            assert phrase in p, (s["name"], phrase)
+            assert phrase in s["system_prompt"], (s["name"], phrase)
+
+
+@pytest.mark.unit
+def test_standalone_unknown_name_rejected(settings):
+    with pytest.raises(ValueError, match="Unknown subagent"):
+        build_standalone_subagent("nope", settings, search_tool=None)
 
 
 @pytest.mark.integration
@@ -76,66 +90,38 @@ def test_standalone_subagent_uses_same_definition(settings, monkeypatch, name):
     assert stub.calls[0]["query"] == "q" and "https://e.com" in out["messages"][-1].text
 
 
-@pytest.mark.unit
-def test_standalone_unknown_name_rejected(settings):
-    with pytest.raises(ValueError, match="Unknown subagent"):
-        build_standalone_subagent("nope", settings, search_tool=None)
-
-
-@pytest.mark.integration
-def test_manager_delegates_to_specialist_which_searches(settings, monkeypatch):
-    stub = StubClient(response={"results": [{"title": "T", "url": "https://e.com", "content": "c"}]})
-    monkeypatch.setattr(tools_module, "TavilyClient", lambda **kw: stub)
-    task = AIMessage(content="", tool_calls=[{
-        "name": "task",
-        "args": {"description": "Research NVDA financials", "subagent_type": "financial-researcher"},
-        "id": "t1",
-    }])
-    search = AIMessage(content="", tool_calls=[{"name": "web_search", "args": {"query": "nvda"}, "id": "s1"}])
-    fake = FakeToolModel(messages=iter([
-        task, search, AIMessage(content="Revenue up. https://e.com"), AIMessage(content="final")
-    ]))
-    real = agent_module.create_deep_agent
-    monkeypatch.setattr(agent_module, "create_deep_agent", lambda **kw: real(**{**kw, "model": fake}))
-    result = agent_module.build_agent(settings).invoke({"messages": [{"role": "user", "content": "go"}]})
-    task_msgs = [m for m in result["messages"] if m.type == "tool" and m.name == "task"]
-    assert "https://e.com" in task_msgs[0].content
-    assert stub.calls[0]["query"] == "nvda"
-    assert result["messages"][-1].text == "final"
-
-
-@pytest.mark.e2e
-@pytest.mark.live("OPENAI_API_KEY", "MODEL", "TAVILY_API_KEY")
-def test_live_manager_delegates_to_all_specialists():
-    agent = agent_module.build_agent(load_settings())
-    result = agent.invoke({"messages": [{"role": "user", "content": (
-        "Analyze NVIDIA as an investment opportunity: recent financial performance, "
-        "AI business and competition, and major risks. Keep it brief."
-    )}]})
-    calls = [tc for m in result["messages"] if m.type == "ai" for tc in m.tool_calls if tc["name"] == "task"]
-    assert {c["args"]["subagent_type"] for c in calls} == set(NAMES)
-    assert len(calls) == 3, "each area should be delegated exactly once"
+# One representative question per specialist, with words a correct in-area answer contains.
+QUESTIONS = {
+    "financial-researcher": (
+        "What were NVIDIA's most recent quarterly revenue, gross margin and operating cash flow?",
+        ("revenue", "margin", "cash flow"),
+    ),
+    "industry-researcher": (
+        "Who are NVIDIA's main competitors in AI accelerators and what technology trends matter?",
+        ("amd", "competit", "trend"),
+    ),
+    "risk-analyst": (
+        "What are the main regulatory and competitive risks facing NVIDIA?",
+        ("risk", "regulat", "export"),
+    ),
+}
 
 
 @pytest.mark.e2e
 @pytest.mark.live("OPENAI_API_KEY", "MODEL", "TAVILY_API_KEY")
 @pytest.mark.parametrize("name", NAMES)
-def test_live_standalone_specialist_searches_and_cites(name):
+def test_live_standalone_specialist_runs_searches_and_stays_in_area(name):
+    question, terms = QUESTIONS[name]
     settings = load_settings()
     agent = build_standalone_subagent(name, settings, tools_module.build_web_search_tool(settings))
-    result = agent.invoke({"messages": [{"role": "user", "content": "Analyze NVIDIA in your area. Keep it brief."}]})
-    searched = [tc for m in result["messages"] if m.type == "ai" for tc in m.tool_calls if tc["name"] == "web_search"]
-    assert searched, "specialist never searched"
-    assert "http" in result["messages"][-1].text, "no source URL in the reply"
-
-
-@pytest.mark.e2e
-@pytest.mark.live("OPENAI_API_KEY", "MODEL", "TAVILY_API_KEY")
-def test_live_industry_only_question_uses_only_industry_researcher():
-    result = agent_module.build_agent(load_settings()).invoke({"messages": [{"role": "user", "content": (
-        "Who are NVIDIA's main competitors in AI accelerators and what are the key industry trends? "
-        "Keep it brief."
-    )}]})
-    calls = [tc for m in result["messages"] if m.type == "ai" for tc in m.tool_calls if tc["name"] == "task"]
-    assert {c["args"]["subagent_type"] for c in calls} == {"industry-researcher"}
-    assert len(calls) == 1
+    result = agent.invoke({"messages": [{"role": "user", "content": question}]})
+    msgs = result["messages"]
+    calls = [tc for m in msgs if m.type == "ai" for tc in m.tool_calls]
+    searches = [c for c in calls if c["name"] == "web_search"]
+    reply = msgs[-1].text
+    print(f"\n[{name}] searches={[c['args'].get('query') for c in searches]}")
+    print(f"[{name}] reply={reply[:300]!r}")
+    assert searches, "specialist never called web_search"
+    assert "http" in reply, "no source URL in the reply"
+    assert any(t in reply.lower() for t in terms), f"reply does not address its area ({terms})"
+    assert not {c["name"] for c in calls} & {"write_todos", "task"}, "specialist planned or delegated"
