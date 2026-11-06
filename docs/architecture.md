@@ -1,6 +1,6 @@
 # Architecture
 
-Status: target design (Session 1). Nothing described here is implemented yet. Items marked *to verify* depend on the installed `deepagents` API and must be checked before use (see `CLAUDE.md`).
+Status: target design. Implemented so far (Session 2): config, prompt, `build_agent()` with FilesystemBackend and built-in todos, `main.py` runner. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
 
 ## 1. Goal
 Take a complex research request, for example "Analyze NVIDIA as an investment opportunity. Research recent financial performance, AI business, competitive landscape, major risks, and produce a structured analyst report.", and produce a validated, structured analyst report rendered as Markdown. Provider: OpenAI. Search: Tavily. Tracing: LangSmith.

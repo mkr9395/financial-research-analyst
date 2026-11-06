@@ -29,3 +29,33 @@
 
 **Checkpoint status**
 - No checkpoint was defined for this session. Against the Session 1 deliverables (structure, config, docs, no application code) all items are present; the test-based verification is outstanding.
+
+## Session 2 - Minimal agent
+
+**Built**
+- Installed and pinned (`requirements.txt`): deepagents 0.7.34, langchain 1.4.9, langchain-core 1.7.6, langchain-openai 1.7.4, langgraph 1.2.20, langsmith 0.14.17, pydantic 2.14.3, python-dotenv 1.2.4, pytest 9.2.0. Tavily deferred until used. `pip check` clean.
+- `app/config.py`: `Settings` (Pydantic, frozen, secrets as `SecretStr`) from env/.env: `MODEL`, `OPENAI_API_KEY`, optional Tavily and LangSmith keys, `LANGSMITH_PROJECT`, workspace path, `RECURSION_LIMIT` (default 100). `ConfigError` on missing key or bad `MODEL`/limit.
+- `app/prompts.py`: `manager_prompt()` injects today's date and instructs planning with `write_todos`.
+- `app/agent.py`: `build_agent(settings)` = `create_deep_agent(model, system_prompt, middleware=[TodoListMiddleware()], backend=FilesystemBackend(workspace/, virtual_mode=True))` then `.with_config(recursion_limit=...)`.
+- `main.py`: minimal runner (`python main.py "request"`).
+- Tests: `tests/test_config.py` (7 unit), `tests/test_agent.py` (3 unit, 1 integration, 1 e2e+live).
+
+**Key decisions and why**
+- Verified installed API: `model` accepts a `provider:model` string or a `BaseChatModel`; `openai:` strings use the Responses API by default (kept). `FilesystemBackend(root_dir, virtual_mode=True, max_file_size_mb)`; virtual mode rejects `..`, `~` and paths outside root. Docstring warns it is path semantics, not process sandboxing (accepted for the local POC).
+- Planning is not in the default stack of 0.7.34; `TodoListMiddleware` is passed via `middleware=`. Library default recursion limit is 9999; we set 100 and make it a setting.
+- LangSmith env names verified in installed langsmith: `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`. Tracing is enabled only when `LANGSMITH_TRACING=true` and a key is set; otherwise config sets `LANGSMITH_TRACING=false`, so the app runs either way.
+- Secrets use `SecretStr` so repr/logs cannot leak them.
+
+**Problems and fixes**
+- `GenericFakeChatModel` lacks `bind_tools`: test subclass added.
+- `conftest.py` skipped all live tests without Tavily; `@pytest.mark.live("KEY", ...)` now names required keys (default both).
+- A shell command that inspected `.env` was blocked by the classifier; presence is now checked only via Python.
+- Backend raises `ValueError` for traversal (the tool layer reports it as an error to the model); unit test expects the exception.
+- `MODEL` initially lacked the `openai:` prefix; user corrected `.env`.
+
+**Test results**
+- Offline: 11 passed, 0 failed, 1 deselected. Full run including live/e2e: 12 passed, 0 failed, 0 skipped.
+- Manual: `main.py` answered a simple request; multi-step request called `write_todos` and created `workspace/research/plan-test.md` (deleted after); `write_file` to `/../outside.md` returned "Path traversal not allowed" and no file was created.
+
+**Checkpoint status**
+- Passed except LangSmith: the user deferred LangSmith credentials, so a traced run (project name, trace contents) is NOT verified. Config logic for tracing on/off is unit-tested.
