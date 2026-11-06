@@ -189,3 +189,36 @@
 
 **Checkpoint status (Session 5)**
 - Passed with a caveat: delegation matches (plan, task calls to the right specialists, results returned, no duplicates) in 7 of 8 live runs of the delegation e2e; one unexplained intermittent failure remains and a clean full-suite run (0 failures) has not been shown.
+
+
+## Session 6 - Research artifacts and context management
+**Built**
+- `app/subagents.py`: each specialist has an `artifact` path and writes full findings with `write_file` to `/research/{financial,industry,risks}.md` (Findings, Key evidence, Sources, Uncertainty and gaps, Research date), then replies with about 150 words plus the path.
+- `app/prompts.py`: manager step 6 - do not read artifacts by default; verify a missing or incomplete one, re-delegate once with a specific instruction, then report the gap.
+- `.gitignore`: `workspace/large_tool_results/`, `workspace/conversation_history/`.
+- `tests/test_artifacts.py`; `docs/architecture.md` "Context management" section.
+
+**Decisions**
+- Orchestration stays prompt-only; the section checker `missing_sections` lives in the test file, not in app code.
+- Summarisation/eviction defaults verified (85%/10% of a 1.05M window; 20k-token eviction) and left unchanged.
+
+**Evidence (one NVIDIA run)**: task results 653 / 370 / 631 chars (1,654 total) vs artifacts 13,102 / 24,394 / 21,725 bytes (59,221 total). Files appeared in `workspace/research/`.
+
+**Caveats**: the manager issued `read_file` calls after delegation; their targets and sizes were not captured. No offload directories appeared under `workspace/`. The Session 5 intermittent live failure was not investigated.
+
+**Tests**: first full run (offline + live): 46 passed, 3 failed. The 3 failures were the Session 5 standalone live specialist tests, which required a URL in the reply; URLs now live in the artifact file by design. Fixed the tests to check the artifact path in the reply and URLs in the file; those 3 then passed. Offline: 39 passed, 10 deselected. Not re-run as one clean full pass after the fix (the full run takes about 15 min).
+
+**Checkpoint status**: Checkpoint 1 passed (3 files, all sections). Checkpoint 2 passed for task results and no custom context code; the manager's `read_file` targets are unverified.
+
+### Session 6 addendum - concise artifacts (200-word limit)
+- Artifacts were 13-24 KB each; the user asked for at most 200 words each. `app/subagents.py` now sets a 200-word cap with hard per-section limits (3 findings bullets, 3 evidence bullets, 3 sources, 2 uncertainty bullets).
+- A bare "at most 200 words" instruction was ignored (258-372 words over three runs; models count words poorly), and my first per-section budget summed to about 215 words, so it overshot by design. Budgets that sum to about 165 worked.
+- Result (one NVIDIA run): financial 153, industry 178, risks 182 words; `task` results 772 / 735 / 581 chars. Live test asserts <= 220 words (tolerance for model variance). Offline: 39 passed, 10 deselected; live artifact test 1 passed.
+- The size table in `docs/architecture.md` (13-24 KB artifacts) is from before this change and is superseded by these figures.
+
+### Session 6 addendum - final verification
+- Full suite (before the last prompt tweak): 48 passed, 1 failed. The failure was `test_live_multi_step_plan_written_to_workspace` (manager wrote the file without `write_todos`). Classified as flaky: the committed prompt failed 1 of 4 runs, my step-6 prompt 2 of 3. Smallest fix: step 2 of the manager prompt now says to plan "before any other action, file write or delegation (even if the request also asks for a file)". After it: 5 of 5 passed.
+- Re-run of manager-facing tests (agent, delegation, artifacts, skills) after the fix: 17 passed, 1 failed - `test_live_full_analysis_plans_and_delegates_to_all_three_once`, the unexplained intermittent test from Session 5. Its assertion was not captured; re-run alone it passed. A possible cause is the new one-time re-delegation allowance tripping the "no duplicate task calls" assertion, unconfirmed.
+- Offline: 39 passed, 10 deselected. No single clean full-suite pass after the last prompt change.
+- Manager reads (one run): 3 SKILL.md (about 4.8k chars), `ls /research`, then each artifact once (4,523 chars total) as a completeness check. Task results total 1,364 chars.
+- Checkpoint 1 passed. Checkpoint 2 passed: manager context is task summaries plus about 4.5k chars of 200-word artifact reads; no custom context code.

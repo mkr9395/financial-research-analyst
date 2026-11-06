@@ -7,7 +7,7 @@ from pydantic import SecretStr
 
 from app import tools as tools_module
 from app.config import Settings, load_settings
-from app.subagents import build_standalone_subagent, build_subagents
+from app.subagents import SPECIALISTS, build_standalone_subagent, build_subagents
 from tests.test_agent import FakeToolModel
 from tests.test_tools import StubClient
 
@@ -122,6 +122,9 @@ def test_live_standalone_specialist_runs_searches_and_stays_in_area(name):
     print(f"\n[{name}] searches={[c['args'].get('query') for c in searches]}")
     print(f"[{name}] reply={reply[:300]!r}")
     assert searches, "specialist never called web_search"
-    assert "http" in reply, "no source URL in the reply"
-    assert any(t in reply.lower() for t in terms), f"reply does not address its area ({terms})"
+    artifact = next(d["artifact"] for d in SPECIALISTS if d["name"] == name)
+    saved = (settings.workspace_dir / artifact.lstrip("/")).read_text(encoding="utf-8")
+    assert artifact in reply, "reply does not give the artifact path"
+    assert "http" in saved, "no source URL in the artifact file"
+    assert any(t in (reply + saved).lower() for t in terms), f"output does not address its area ({terms})"
     assert not {c["name"] for c in calls} & {"write_todos", "task"}, "specialist planned or delegated"

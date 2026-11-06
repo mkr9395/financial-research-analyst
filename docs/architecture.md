@@ -1,6 +1,6 @@
 # Architecture
 
-Status: target design. Implemented so far (Sessions 2-5): config, prompt, `build_agent()` with FilesystemBackend, built-in todos, the `web_search` tool (`app/tools.py`), runtime skills, three specialist subagents (`app/subagents.py`) with manager delegation via `task`, `main.py` runner. Specialists currently return their findings in the reply; writing `/research/<area>.md` comes in Session 6. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
+Status: target design. Implemented so far (Sessions 2-6): config, prompt, `build_agent()` with FilesystemBackend, built-in todos, the `web_search` tool (`app/tools.py`), runtime skills, three specialist subagents (`app/subagents.py`) with manager delegation via `task`, `main.py` runner. Specialists write full findings to `/research/<area>.md` and reply with a short summary plus the path (Session 6). Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
 
 ## 1. Goal
 Take a complex research request, for example "Analyze NVIDIA as an investment opportunity. Research recent financial performance, AI business, competitive landscape, major risks, and produce a structured analyst report.", and produce a validated, structured analyst report rendered as Markdown. Provider: OpenAI. Search: Tavily. Tracing: LangSmith.
@@ -127,6 +127,25 @@ The framework may also write internal files (for example offloaded large tool re
 
 ## 8. Out of scope
 RAG, vector databases, MCP, Docker, Kubernetes, a web frontend, cloud deployment, custom LangGraph orchestration, custom loop-control middleware, real-time market data, trading, and personalized investment advice.
+
+## Context management (Session 6, deepagents 0.7.34)
+No custom context code exists in this project. Four built-in mechanisms keep the manager's context small:
+
+1. **Subagent isolation.** A specialist sees only the `description` text of the `task` call, its own system prompt and its own tools/skills. Its searches and reasoning stay in its own context. The manager receives only the specialist's final message as one `ToolMessage`; file writes go to the shared backend.
+2. **Filesystem offloading (artifact pattern).** Each specialist writes full findings to `/research/financial.md`, `/research/industry.md` or `/research/risks.md` (sections: Findings, Key evidence, Sources, Uncertainty and gaps, Research date) and returns about 150 words plus the path. The manager reads a file only when it needs detail. If a file is missing or incomplete it re-delegates once, then reports the gap (prompt rule, no code).
+3. **Built-in summarisation and large-result handling** (on by default, unchanged). Summarisation runs on the manager and on every declarative subagent. For the configured model (profile `max_input_tokens` 1,050,000) it triggers at 85% of the window and keeps the last 10%, so about 892k tokens; older history is offloaded to `/conversation_history/`. `FilesystemMiddleware` evicts any tool result above 20,000 tokens (about 80,000 characters) to `/large_tool_results/` and leaves a preview. Both are far above this project's volumes, so the defaults are not changed. Offload directories are git-ignored.
+4. **Progressive skill loading.** Only each skill's name and description are in the prompt; the agent reads `SKILL.md` on demand.
+
+**Measured (one NVIDIA run, full request, artifacts limited to 200 words):**
+
+| Specialist | `task` result received by manager | Artifact (words) | Manager `read_file` of artifact |
+|---|---|---|---|
+| financial-researcher | 340 chars | 153 | 1,493 chars |
+| industry-researcher | 646 chars | 178 | 1,525 chars |
+| risk-analyst | 378 chars | 182 | 1,505 chars |
+| Total | 1,364 chars | 513 | 4,523 chars |
+
+Before the 200-word limit, artifacts were 13-24 KB each (59 KB total) and `task` results were 653 / 370 / 631 chars. Session 5 replies were 2.7k-4.6k chars each. The manager also reads the three `SKILL.md` files (about 4.8k chars) and runs `ls /research` (73 chars). After delegation it reads each artifact once to check its sections, as the prompt directs; with 200-word files that costs about 1.5k chars each. Nothing was summarised or evicted.
 
 ## Verified deepagents API for subagents (Session 5, deepagents 0.7.34)
 Verified from the installed source (`deepagents/middleware/subagents.py`, `deepagents/graph.py`):
