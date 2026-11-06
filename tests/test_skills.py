@@ -11,6 +11,11 @@ from app.config import PROJECT_ROOT, Settings
 from tests.test_agent import FakeToolModel
 
 EXPECTED = {"financial-analysis", "investment-research", "risk-analysis"}
+DESCRIPTION_KEYWORDS = {
+    "financial-analysis": ("reporting period", "margins", "cash flow"),
+    "investment-research": ("thesis", "valuation", "uncertainty"),
+    "risk-analysis": ("regulatory", "likelihood and impact", "uncertainty"),
+}
 WORKSPACE = PROJECT_ROOT / "workspace"
 
 
@@ -20,7 +25,10 @@ def test_runtime_skills_load_without_errors():
     skills, error = _list_skills_with_errors(backend, SKILLS_SOURCE)
     assert error is None
     assert {s["name"] for s in skills} == EXPECTED
-    assert all(s["description"] for s in skills)
+    for skill in skills:
+        assert skill["path"].endswith(f"/{skill['name']}/SKILL.md")
+        for keyword in DESCRIPTION_KEYWORDS[skill["name"]]:
+            assert keyword in skill["description"].lower()
 
 
 @pytest.mark.unit
@@ -46,9 +54,15 @@ def _settings(path) -> Settings:
     )
 
 
-@pytest.mark.integration
-def test_skill_names_reach_the_model_prompt(monkeypatch):
-    """The real skills directory is listed in the system prompt the model receives."""
+def _skill_body(name: str) -> str:
+    text = (WORKSPACE / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+    return text.split("---", 2)[2].strip()
+
+
+@pytest.mark.unit
+def test_initial_prompt_has_descriptions_but_not_skill_bodies(monkeypatch):
+    """Progressive disclosure: the model's first system prompt lists each skill's name and
+    description, but contains no SKILL.md body text."""
     seen = []
 
     class Spy(FakeToolModel):
@@ -64,19 +78,20 @@ def test_skill_names_reach_the_model_prompt(monkeypatch):
     prompt = seen[0]
     skills, _ = _list_skills_with_errors(FilesystemBackend(root_dir=WORKSPACE, virtual_mode=True), SKILLS_SOURCE)
     assert all(s["name"] in prompt and s["description"] in prompt for s in skills)
-    # Progressive disclosure: the SKILL.md bodies are not in the prompt.
-    for marker in ("Reporting period rule", "Build the view", "Categories to check"):
-        assert marker not in prompt
+    for name in EXPECTED:
+        body = _skill_body(name)
+        assert body not in prompt
+        for line in (ln for ln in body.splitlines() if len(ln) > 40):
+            assert line not in prompt
 
 
 @pytest.mark.e2e
 @pytest.mark.live("OPENAI_API_KEY", "MODEL", "TAVILY_API_KEY")
-def test_live_agent_reads_matching_skill():
+def test_live_risk_request_reads_risk_analysis_skill():
     from app.config import load_settings
 
     result = build_agent(load_settings()).invoke({"messages": [{"role": "user", "content": (
-        "Use your skill for rating company risks. Then state in one line how risks "
-        "should be rated."
+        "Assess NVIDIA's main business risks"
     )}]})
     calls = [tc for m in result["messages"] for tc in getattr(m, "tool_calls", []) or []]
     assert any(tc["name"] == "read_file" and "/skills/risk-analysis" in str(tc["args"]) for tc in calls)
