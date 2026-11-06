@@ -1,6 +1,6 @@
 # Architecture
 
-Status: target design. Implemented so far (Sessions 2-3): config, prompt, `build_agent()` with FilesystemBackend, built-in todos and the `web_search` tool (`app/tools.py`), `main.py` runner. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
+Status: target design. Implemented so far (Sessions 2-4): config, prompt, `build_agent()` with FilesystemBackend, built-in todos, the `web_search` tool (`app/tools.py`), runtime skills, `main.py` runner. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
 
 ## 1. Goal
 Take a complex research request, for example "Analyze NVIDIA as an investment opportunity. Research recent financial performance, AI business, competitive landscape, major risks, and produce a structured analyst report.", and produce a validated, structured analyst report rendered as Markdown. Provider: OpenAI. Search: Tavily. Tracing: LangSmith.
@@ -66,7 +66,7 @@ Contract for every specialist:
 ### 3.4 Runtime skills
 - Located in `workspace/skills/` (agent path `/skills/`), committed to git.
 - Loaded with `skills=["/skills/"]`: a source directory containing one directory per skill, each with a `SKILL.md` (`name` equal to the directory name, `description`).
-- Skills hold reusable procedures such as how to structure an analyst report or how to cite sources. Specialists do not inherit the manager's skills, so each gets the ones it needs explicitly (*to verify*).
+- Skills hold reusable procedures (financial analysis, investment research, risk analysis), including citing and dating sources. Implemented (Session 4): `skills=["/skills/"]` on the manager with three skills: `financial-analysis`, `investment-research`, `risk-analysis`. Only name and description are in the prompt; the manager reads a SKILL.md when relevant. Custom subagents do not inherit the manager's skills, so in Session 5 each specialist is given the one relevant skill via its own `SubAgent` `skills` field (supported in 0.7.34; forked subagents cannot set skills).
 - Separate from Claude Code development skills in `.claude/skills/`; the two are never mixed.
 
 ### 3.5 Workspace filesystem

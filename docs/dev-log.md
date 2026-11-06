@@ -103,3 +103,25 @@
 
 **Checkpoint status (Session 3)**
 - PASSED: search returns real, sourced results; the agent calls `web_search` and cites a URL (live e2e test).
+
+## Session 4 - Runtime skills
+
+**Built**
+- `workspace/skills/` (agent path `/skills/`, committed) with three runtime skills: `financial-analysis` (revenue, margins, earnings, cash flow, trends; every figure states its fiscal period, source and date; facts vs analysis), `investment-research` (thesis, competitive position, strengths/weaknesses, valuation, uncertainty), `risk-analysis` (financial, regulatory, competitive, technology, business-model risks; likelihood and impact ratings; uncertainty).
+- `app/agent.py`: `SKILLS_SOURCE = "/skills/"` passed as `skills=[SKILLS_SOURCE]`; manager prompt has one line telling it to read a matching skill (no skill content in the prompt).
+- `tests/test_skills.py`: 2 unit (real skills load without errors and names match; `skills` wiring), 1 integration (names and descriptions reach the model prompt, SKILL.md bodies do not: progressive disclosure), 1 e2e+live (agent reads `/skills/risk-analysis/SKILL.md`).
+
+**Key decisions and why**
+- Verified installed API first (second time, after being asked): deepagents 0.7.34; `skills: list[str]` of source directories relative to the backend root; `SKILL.md` frontmatter `name` (= directory name) and `description` (<=1024 chars) required.
+- A first set (`source-citation`, `financial-analysis`, `analyst-report-structure`) was replaced when the spec named different skills. Citation rules now live in `financial-analysis`; report-structure guidance has no skill and will be needed with `ResearchReport` (Session 6/7).
+- Skills attach to the manager only for now. Session 5 gives each specialist its one skill via `SubAgent.skills` (supported; forks cannot).
+
+**Problems and fixes**
+- Code was first written before the API checks were done; checks were run afterwards and confirmed it.
+- The unit test uses the private `_list_skills_with_errors` helper (load problems are otherwise only logged); may need updating on a deepagents upgrade.
+
+**Test results**
+- Offline: 27 passed, 0 failed, 4 deselected. Full run including live: 31 passed, 0 failed, 0 skipped.
+
+**Checkpoint status**
+- PASSED: skills load from `/skills/`, only names/descriptions are in the prompt, and the live agent read the matching SKILL.md.
