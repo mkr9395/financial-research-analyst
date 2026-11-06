@@ -7,6 +7,7 @@ from app.config import ConfigError, load_settings
 ENV_NAMES = (
     "OPENAI_API_KEY", "MODEL", "TAVILY_API_KEY", "LANGSMITH_API_KEY",
     "LANGSMITH_TRACING", "LANGSMITH_PROJECT", "RECURSION_LIMIT",
+    "SEARCH_MAX_RESULTS", "SEARCH_SNIPPET_CHARS",
 )
 
 
@@ -22,6 +23,7 @@ def clean_env(monkeypatch):
 def base_env(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret")
     monkeypatch.setenv("MODEL", "openai:test-model")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-secret")
 
 
 @pytest.mark.unit
@@ -30,20 +32,42 @@ def test_defaults(base_env):
     assert s.model == "openai:test-model"
     assert s.recursion_limit == 100
     assert s.langsmith_tracing is False
-    assert s.tavily_api_key is None
+    assert s.search_max_results == 5
+    assert s.search_snippet_chars == 1000
     assert s.workspace_dir.name == "workspace"
 
 
 @pytest.mark.unit
 def test_missing_openai_key_fails_fast(monkeypatch):
     monkeypatch.setenv("MODEL", "openai:test-model")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-secret")
     with pytest.raises(ConfigError, match="OPENAI_API_KEY"):
+        load_settings()
+
+
+@pytest.mark.unit
+def test_missing_tavily_key_fails_fast(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("MODEL", "openai:test-model")
+    with pytest.raises(ConfigError, match="TAVILY_API_KEY"):
+        load_settings()
+
+
+@pytest.mark.unit
+def test_search_limits_configurable_and_validated(base_env, monkeypatch):
+    monkeypatch.setenv("SEARCH_MAX_RESULTS", "3")
+    monkeypatch.setenv("SEARCH_SNIPPET_CHARS", "200")
+    s = load_settings()
+    assert (s.search_max_results, s.search_snippet_chars) == (3, 200)
+    monkeypatch.setenv("SEARCH_MAX_RESULTS", "0")
+    with pytest.raises(ConfigError, match="SEARCH_MAX_RESULTS"):
         load_settings()
 
 
 @pytest.mark.unit
 def test_model_must_have_provider(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-secret")
     monkeypatch.setenv("MODEL", "bare-name")
     with pytest.raises(ConfigError, match="provider:model"):
         load_settings()
@@ -54,6 +78,7 @@ def test_secrets_not_exposed(base_env):
     s = load_settings()
     assert "sk-test-secret" not in repr(s)
     assert "sk-test-secret" not in str(s)
+    assert "tvly-test-secret" not in repr(s)
 
 
 @pytest.mark.unit

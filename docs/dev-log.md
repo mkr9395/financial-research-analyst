@@ -82,3 +82,24 @@
 
 **Checkpoint status**
 - NOT fully passed: the offline checkpoint passes, but a live search returning real results is unverified because the Tavily key is rejected (401). Needs a valid `TAVILY_API_KEY` in `.env`.
+
+### Session 3 addendum - search tool hardening
+- `Settings.tavily_api_key` is now required: `load_settings()` raises `ConfigError` at startup if it is missing (previously only when the tool was built).
+- New settings `SEARCH_MAX_RESULTS` (default 5) and `SEARCH_SNIPPET_CHARS` (default 1000), validated as positive integers via a shared `_positive_int` helper (also used for `RECURSION_LIMIT`).
+- `app/tools.py`: typed `SearchResult` model and `normalise_results()`; explicit `No results found for '<query>'.`; a broad `except Exception` in the tool converts any transport failure (timeout, connection) into a `Search error (<Type>)` message for the model. This is deliberate and reported, never silent.
+- `.env.example` was deleted by the user; docs that mention it are now stale.
+- Tests added: missing-key config test in `test_tools.py`; the live search test is now marked `integration` + `live`; new `e2e` + `live` test asks the agent for NVIDIA's latest quarterly revenue and asserts `web_search` was called, returned `URL: http`, and the final answer cites a URL.
+
+**Switch to the standalone Tavily SDK (user decision)**
+- Replaced `langchain-tavily` with `tavily-python` 0.8.5 (Tavily's own SDK; the user wanted it instead of the LangChain wrapper). Uninstalled `langchain-tavily`; `requirements.txt` pins `tavily-python==0.8.5`; `pip check` clean.
+- Verified API: `from tavily import TavilyClient`; `TavilyClient(api_key=...)`; `search(query, topic, time_range, max_results, timeout, ...) -> dict` with `results[{title,url,content,score,published_date?}]`. Errors are raised as typed exceptions (`InvalidAPIKeyError`, `ForbiddenError`, `BadRequestError`, `UsageLimitExceededError`, `tavily.errors.TimeoutError`) plus `requests` exceptions.
+- Because errors are real exceptions, the broad `except Exception` and the `{"error": exc}` dict handling were removed; the tool catches only the known Tavily/network exceptions (`TAVILY_ERRORS`), so a genuine bug still surfaces. Added a 30 s request timeout.
+- Tests: stub client replaces the stub LangChain tool; parametrised known-error test; test that an unexpected `RuntimeError` is not swallowed.
+- The earlier persistent 401 came through the `langchain-tavily` path; with the SDK the live tests pass. Root cause not isolated (the key was not inspected, per security rules).
+
+**Final test results (Session 3)**
+- Offline: 24 passed, 0 failed, 3 deselected. Full run including live: 27 passed, 0 failed, 0 skipped.
+- Manual live searches: finance and news queries returned relevant NVIDIA results with URLs; news results carry `published_date`. Caveat: the top finance hit was an older earnings preview, so ranking does not guarantee the latest quarter; the research prompts must ask for dates and verify recency.
+
+**Checkpoint status (Session 3)**
+- PASSED: search returns real, sourced results; the agent calls `web_search` and cites a URL (live e2e test).

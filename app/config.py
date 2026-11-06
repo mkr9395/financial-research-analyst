@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, SecretStr
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RECURSION_LIMIT = 100
+DEFAULT_SEARCH_MAX_RESULTS = 5
+DEFAULT_SEARCH_SNIPPET_CHARS = 1000
 DEFAULT_LANGSMITH_PROJECT = "deep-financial-research-agent"
 
 
@@ -24,17 +26,30 @@ class Settings(BaseModel):
 
     model: str
     openai_api_key: SecretStr
-    tavily_api_key: SecretStr | None = None
+    tavily_api_key: SecretStr
     langsmith_api_key: SecretStr | None = None
     langsmith_tracing: bool = False
     langsmith_project: str = DEFAULT_LANGSMITH_PROJECT
     workspace_dir: Path = PROJECT_ROOT / "workspace"
     recursion_limit: int = DEFAULT_RECURSION_LIMIT
+    search_max_results: int = DEFAULT_SEARCH_MAX_RESULTS
+    search_snippet_chars: int = DEFAULT_SEARCH_SNIPPET_CHARS
 
 
 def _optional_secret(name: str) -> SecretStr | None:
     value = os.environ.get(name, "").strip()
     return SecretStr(value) if value else None
+
+
+def _positive_int(name: str, default: int) -> int:
+    """Read an integer env var that must be at least 1."""
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be an integer.") from exc
+    if value < 1:
+        raise ConfigError(f"{name} must be at least 1.")
+    return value
 
 
 def load_settings() -> Settings:
@@ -49,6 +64,10 @@ def load_settings() -> Settings:
     if openai_key is None:
         raise ConfigError("OPENAI_API_KEY is not set. Add it to .env (see .env.example).")
 
+    tavily_key = _optional_secret("TAVILY_API_KEY")
+    if tavily_key is None:
+        raise ConfigError("TAVILY_API_KEY is not set. Add it to .env; web search needs it.")
+
     model = os.environ.get("MODEL", "").strip()
     if ":" not in model:
         raise ConfigError("MODEL must be set in provider:model form, e.g. openai:<model-name>.")
@@ -58,20 +77,17 @@ def load_settings() -> Settings:
     tracing = wants_tracing and langsmith_key is not None
     os.environ["LANGSMITH_TRACING"] = "true" if tracing else "false"
 
-    try:
-        recursion_limit = int(os.environ.get("RECURSION_LIMIT", DEFAULT_RECURSION_LIMIT))
-    except ValueError as exc:
-        raise ConfigError("RECURSION_LIMIT must be an integer.") from exc
-    if recursion_limit < 1:
-        raise ConfigError("RECURSION_LIMIT must be at least 1.")
-
     return Settings(
         model=model,
         openai_api_key=openai_key,
-        tavily_api_key=_optional_secret("TAVILY_API_KEY"),
+        tavily_api_key=tavily_key,
         langsmith_api_key=langsmith_key,
         langsmith_tracing=tracing,
         langsmith_project=os.environ.get("LANGSMITH_PROJECT", "").strip()
         or DEFAULT_LANGSMITH_PROJECT,
-        recursion_limit=recursion_limit,
+        recursion_limit=_positive_int("RECURSION_LIMIT", DEFAULT_RECURSION_LIMIT),
+        search_max_results=_positive_int("SEARCH_MAX_RESULTS", DEFAULT_SEARCH_MAX_RESULTS),
+        search_snippet_chars=_positive_int(
+            "SEARCH_SNIPPET_CHARS", DEFAULT_SEARCH_SNIPPET_CHARS
+        ),
     )

@@ -58,7 +58,7 @@ Contract for every specialist:
 - Distinguish facts from interpretation and state the date of each figure.
 
 ### 3.3 Web search tool
-- Implemented in `app/tools.py` (`build_web_search_tool`): a `web_search(query, topic, time_range)` tool wrapping `langchain_tavily.TavilySearch` (verified, 0.2.18). Returns at most 5 results as text (title, URL, date, snippet capped at 1200 chars). Failures (no results, 401, network) are returned to the model as `Search error: ...` because the Tavily wrapper returns API errors as `{"error": exc}` instead of raising. Currently attached to the manager; Session 4 moves it to the specialists.
+- Implemented in `app/tools.py` (`build_web_search_tool(settings)`): a `web_search(query, topic, time_range)` tool wrapping the standalone Tavily SDK (`tavily-python` 0.8.5, `TavilyClient.search`), independent of orchestration. `TAVILY_API_KEY` is required by `load_settings()` (fails fast at startup). Results are normalised into `SearchResult` (title, url, snippet, published date if present), limited by `SEARCH_MAX_RESULTS` (default 5) and `SEARCH_SNIPPET_CHARS` (default 1000). Empty results return `No results found for '<query>'.`; Known Tavily failures (invalid key, forbidden, bad request, usage limit, timeout, `requests` network errors) return `Search error (<Type>): <message>` to the model; the SDK raises typed exceptions, so only those are caught and unexpected errors propagate. Requests use a 30 s timeout. Attached to the manager for now; Session 4 moves it to the specialists.
 - Typed inputs, a model-facing docstring, bounded result count, and clear errors on failure (no silent fallbacks).
 - Search results are untrusted data, never instructions.
 - All specialists use it; the manager does not need it.
