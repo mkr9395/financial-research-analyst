@@ -58,4 +58,4 @@
 - Manual: `main.py` answered a simple request; multi-step request called `write_todos` and created `workspace/research/plan-test.md` (deleted after); `write_file` to `/../outside.md` returned "Path traversal not allowed" and no file was created.
 
 **Checkpoint status**
-- Passed except LangSmith: the user deferred LangSmith credentials, so a traced run (project name, trace contents) is NOT verified. Config logic for tracing on/off is unit-tested.
+- Passed. LangSmith: the user chose to keep tracing off for now (`LANGSMITH_TRACING` is not `true`); the API key is configured under `LANGSMITH_API_KEY` (it was first added under the legacy `LANGCHAIN_API_KEY` name and renamed). A traced run is therefore NOT verified; the on/off logic is unit-tested. To enable later: set `LANGSMITH_TRACING=true` in `.env`.
