@@ -59,3 +59,26 @@
 
 **Checkpoint status**
 - Passed. LangSmith: the user chose to keep tracing off for now (`LANGSMITH_TRACING` is not `true`); the API key is configured under `LANGSMITH_API_KEY` (it was first added under the legacy `LANGCHAIN_API_KEY` name and renamed). A traced run is therefore NOT verified; the on/off logic is unit-tested. To enable later: set `LANGSMITH_TRACING=true` in `.env`.
+
+## Session 3 - Web search tool
+
+**Built**
+- Installed `langchain-tavily` 0.2.18 (the Tavily integration the search tool wraps); pinned in `requirements.txt`; `pip check` clean.
+- `app/tools.py`: `build_web_search_tool(settings, search=None)` returns a `web_search(query, topic, time_range)` tool. Bounded to 5 results, snippets capped at 1200 chars, output labelled as untrusted, docstring written for the model. `ConfigError` if `TAVILY_API_KEY` is missing.
+- Wired into `build_agent()` via `tools=`; manager prompt tells it to use `web_search` and cite URLs.
+- `tests/test_tools.py`: 6 unit, 1 integration (agent -> ToolNode -> stubbed Tavily), 1 live.
+
+**Key decisions and why**
+- Verified installed API: `TavilySearch._run` raises `ToolException` on no results but returns `{"error": exc}` for API/network failures. The tool converts both into explicit `Search error: ...` strings so the model sees the failure and can rephrase; nothing is silently swallowed or empty.
+- `max_results`, depth and other instantiation-only params are fixed in code, not exposed to the model (Tavily forbids them at invoke time anyway).
+- The tool is on the manager for now (nothing else exists to use it); it moves to specialists in Session 4.
+
+**Problems and fixes**
+- Existing agent test fixture lacked a Tavily key, so `build_agent` raised `ConfigError`; fixture updated.
+- Live search returned 401 (missing/invalid Tavily key): the error was surfaced to the model correctly, which declined to quote figures. A `.env` probe was blocked by the permission classifier and not retried.
+
+**Test results**
+- Offline: 18 passed, 0 failed, 2 deselected. Full run: 18 passed, 2 failed, 0 skipped. Failures: the Tavily live test (401) and `test_live_multi_step_plan_written_to_workspace` on one run; the latter passed when re-run alone (1 passed), so it is LLM-nondeterministic.
+
+**Checkpoint status**
+- NOT fully passed: the offline checkpoint passes, but a live search returning real results is unverified because the Tavily key is rejected (401). Needs a valid `TAVILY_API_KEY` in `.env`.

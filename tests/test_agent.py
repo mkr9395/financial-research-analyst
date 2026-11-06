@@ -24,6 +24,7 @@ def settings(tmp_path) -> Settings:
     return Settings(
         model="openai:placeholder",
         openai_api_key=SecretStr("sk-test"),
+        tavily_api_key=SecretStr("tvly-test"),
         workspace_dir=tmp_path,
         recursion_limit=7,
     )
@@ -62,6 +63,7 @@ def test_build_agent_wiring(settings, monkeypatch):
     assert captured["backend"].cwd == settings.workspace_dir.resolve()
     assert "write_todos" in captured["system_prompt"]
     assert agent.config["recursion_limit"] == 7
+    assert [t.name for t in captured["tools"]] == ["web_search"]
 
 
 @pytest.mark.integration

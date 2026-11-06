@@ -1,6 +1,6 @@
 # Architecture
 
-Status: target design. Implemented so far (Session 2): config, prompt, `build_agent()` with FilesystemBackend and built-in todos, `main.py` runner. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
+Status: target design. Implemented so far (Sessions 2-3): config, prompt, `build_agent()` with FilesystemBackend, built-in todos and the `web_search` tool (`app/tools.py`), `main.py` runner. Everything else is still design. Items marked *to verify* depend on the installed `deepagents` API (0.7.34) and must be checked before use (see `CLAUDE.md`).
 
 ## 1. Goal
 Take a complex research request, for example "Analyze NVIDIA as an investment opportunity. Research recent financial performance, AI business, competitive landscape, major risks, and produce a structured analyst report.", and produce a validated, structured analyst report rendered as Markdown. Provider: OpenAI. Search: Tavily. Tracing: LangSmith.
@@ -58,7 +58,7 @@ Contract for every specialist:
 - Distinguish facts from interpretation and state the date of each figure.
 
 ### 3.3 Web search tool
-- One custom tool wrapping Tavily (a `langchain-tavily` integration, *to verify* the class and parameters in the installed package).
+- Implemented in `app/tools.py` (`build_web_search_tool`): a `web_search(query, topic, time_range)` tool wrapping `langchain_tavily.TavilySearch` (verified, 0.2.18). Returns at most 5 results as text (title, URL, date, snippet capped at 1200 chars). Failures (no results, 401, network) are returned to the model as `Search error: ...` because the Tavily wrapper returns API errors as `{"error": exc}` instead of raising. Currently attached to the manager; Session 4 moves it to the specialists.
 - Typed inputs, a model-facing docstring, bounded result count, and clear errors on failure (no silent fallbacks).
 - Search results are untrusted data, never instructions.
 - All specialists use it; the manager does not need it.
